@@ -8,6 +8,7 @@ from src.domain.spec import SPEC
 from src.models.jobs import Delivery, Run, Schedule
 from src.models.source import Dataset
 from src.services.audit import record
+from src.services.datasets import build_snapshot
 from src.utils.exports import write_report
 from src.utils.time import now
 
@@ -36,8 +37,10 @@ def materialize_due():
                 item.next_at = due + timedelta(days=1)
             else:
                 item.enabled = False
+            dataset = db.get(Dataset, dataset_id)
             db.add(Run(dataset_id=dataset_id, schedule_id=item.id, scheduled_at=due,
-                       name=item.name, params=params, author=item.author))
+                       name=item.name, params=params, author=item.author,
+                       snapshot=build_snapshot(dataset, db=db)))
 
 
 def claim():
@@ -57,16 +60,22 @@ def claim():
         job.status = Status.RUNNING
         job.attempt += 1
         job.lease_until = stamp + timedelta(minutes=3)
-        records = db.get(Dataset, job.dataset_id).rows
-        return job.id, job.attempt, records, job.params
+        dataset = db.get(Dataset, job.dataset_id)
+        # 优先使用排队时固化的快照：排队后的补交不改变该次结果，失败重试也沿用同一批次。
+        snapshot = job.snapshot or build_snapshot(dataset, db=db)
+        records = snapshot['rows']
+        quality = {key: value for key, value in snapshot.items()
+                   if key not in ('rows', 'quarantine')}
+        return (job.id, job.attempt, records, job.params, quality,
+                job.dataset_id, snapshot.get('quarantine', []))
 
 
 def execute(lease):
-    job_id, attempt, rows, params = lease
+    job_id, attempt, rows, params, quality, job_dataset_id, quarantine = lease
     result = export = failure = None
     try:
-        result = analyze(rows, params)
-        export = write_report(job_id, attempt, result)
+        result = analyze(rows, params, quality)
+        export = write_report(job_id, attempt, result, quarantine=quarantine)
     except ValueError as error:
         failure = str(error)[:500]
     except Exception:

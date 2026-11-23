@@ -101,9 +101,18 @@ def _table(title, columns, rows):
     return {"title": title, "columns": [{"key": key, "label": label} for key, label in columns], "rows": rows}
 
 
-def analyze(rows, normalized_params):
-    """对同一批有效巡检计算可重跑的单项及成对条件排名。"""
+def analyze(rows, normalized_params, quality=None):
+    """对同一批有效巡检计算可重跑的单项及成对条件排名。
+
+    quality 携带该批次的质检口径（总行数、纳入数、隔离数），随结果一起发布，
+    保证报告分母与台账一致；缺省时按全部行均合格处理（兼容历史调用）。
+    """
     records = validate_rows(rows)
+    quality = quality or {}
+    total_received = quality.get('total_count', len(records))
+    blocked = quality.get('blocked_count', 0)
+    total_quarantined = max(total_received - len(records), 0)
+    open_quarantined = max(total_quarantined - blocked, 0)
     params = {
         field["key"]: _bounded(normalized_params.get(field["key"], field["default"]), field)
         for field in SPEC["params"]
@@ -158,11 +167,25 @@ def analyze(rows, normalized_params):
         "state": "warning" if not positives or not negatives or patterns else "ok",
         "headline": headline,
         "note": (
-            f"纳入 {total} 条巡检。湿度达到 {threshold:g}% 归入高湿，平滑量 {params['smoothing']:g}。"
+            f"本批共收到 {total_received} 条巡检，纳入 {total} 条、"
+            f"待补交隔离 {open_quarantined} 条、拦截 {blocked} 条。"
+            f"湿度达到 {threshold:g}% 归入高湿，平滑量 {params['smoothing']:g}。"
             f"门槛为正组命中至少 {params['min_positive_count']} 条、两组合计至少 {params['min_total_count']} 条、"
             f"增长至少 {params['min_growth']:g} 倍。结果反映本批记录的关联，无法据此判定成因。"
         ),
+        "quality": {
+            "total_count": total_received,
+            "accepted_count": total,
+            "quarantined_count": total_quarantined,
+            "open_count": open_quarantined,
+            "blocked_count": blocked,
+            "denominator_note": "所有支持度均以纳入记录数为分母，隔离与拦截记录逐条登记原因、不计入分母。",
+        },
         "metrics": [
+            {"label": "收到巡检总数", "value": total_received, "detail": "导入与补交的全部行数"},
+            {"label": "纳入巡检", "value": total, "detail": "支持度计算的分母"},
+            {"label": "待补交隔离", "value": open_quarantined, "detail": "缺列、湿度越界等，可补交修正版"},
+            {"label": "拦截记录", "value": blocked, "detail": "重复单号等无法补入的记录，逐条登记原因"},
             {"label": "见霉斑巡检", "value": positives, "detail": "正组支持度的分母"},
             {"label": "未见霉斑巡检", "value": negatives, "detail": "负组支持度的分母"},
             {"label": "入选模式", "value": len(patterns),

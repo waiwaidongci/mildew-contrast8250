@@ -12,6 +12,7 @@ from src.models.jobs import Run
 from src.models.source import Dataset
 from src.schemas.requests import ReviewRequest, RunRequest
 from src.services.audit import record
+from src.services.datasets import build_snapshot
 from src.services.validation import normalize_params
 from src.utils import views
 from src.utils.wakeup import wake
@@ -36,7 +37,9 @@ def create(body: RunRequest, db: Session = Depends(connection),
            actor: User = Depends(allow(Role.ADMIN, Role.ANALYST))):
     if not db.get(Dataset, body.dataset_id):
         raise HTTPException(404, '找不到指定的数据批次')
-    item = Run(name=body.name, dataset_id=body.dataset_id, params=normalize_params(body.params), author=actor.username)
+    dataset = db.get(Dataset, body.dataset_id)
+    item = Run(name=body.name, dataset_id=body.dataset_id, params=normalize_params(body.params),
+               snapshot=build_snapshot(dataset, db=db), author=actor.username)
     db.add(item)
     db.flush()
     record(db, actor.username, 'analysis.queued', item.id, dataset_id=item.dataset_id)

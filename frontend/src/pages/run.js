@@ -32,6 +32,10 @@ export async function runPage(route, refresh) {
       location.hash = `#results/${item.id}`;
     })}, datasetField(datasets,route.id),field({key:'name',label:'运行名称',type:'string',max_length:120},`样本${spec.run}`),
     el('div',{class:'form-grid'},spec.params.map(param=>field(param))),el('div',{class:'actions'},submit),scheduleFields,error);
+  const chosen = datasets.find(item=>String(item.id)===String(route.id)) || datasets[0];
+  const qualityHint = chosen && el('p',{class:'subtle'},
+    `本批次共 ${chosen.total_count ?? chosen.row_count} 行，纳入 ${chosen.accepted_count ?? chosen.row_count} 行、`
+    + `待隔离 ${chosen.open_count ?? 0} 行、拦截 ${chosen.blocked_count ?? 0} 行。运行在排队时固化该快照，之后补交不改变本次结果。`);
   plan.addEventListener('click',handler(plan,error,async()=>{
     if (!form.reportValidity()) return;
     const data = new FormData(form);
@@ -58,7 +62,7 @@ export async function runPage(route, refresh) {
     }},
   ],plans,{caption:'定时计划',empty:'还未配置定时计划。'}));
   return el('div',{class:'two-col'}, el('div',{class:'wide-panel'},
-    panel(spec.run,session.canWrite ? (datasets.length ? form : empty('请先导入数据。','#inputs','前往导入'))
+    panel(spec.run,session.canWrite ? (datasets.length ? el('div',{},qualityHint,form) : empty('请先导入数据。','#inputs','前往导入'))
       : p('只读角色可以查看上方业务流程的历史运行。','empty')),
     !scheduling && panel('运行记录',runList),scheduleList),
     el('aside',{class:'sidebar-panel'},panel('计算口径',el('ul',{class:'method-list'},spec.methodology.map(text=>el('li',{},text))))));

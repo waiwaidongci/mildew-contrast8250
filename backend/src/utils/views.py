@@ -2,13 +2,32 @@ from src.utils.time import iso
 
 
 def dataset(item):
+    total = item.total_count or item.row_count
+    accepted = item.accepted_count or item.row_count
+    blocked = item.blocked_count or 0
     return {'id': item.id, 'name': item.name, 'filename': item.filename, 'row_count': item.row_count,
-            'checksum': item.checksum, 'author': item.author, 'created_at': iso(item.created_at)}
+            'total_count': total,
+            'accepted_count': accepted,
+            'rejected_count': item.rejected_count or (total - accepted),
+            'blocked_count': blocked,
+            'open_count': (item.rejected_count or (total - accepted)) - blocked,
+            'revision': item.revision or 1,
+            'checksum': item.checksum, 'author': item.author,
+            'created_at': iso(item.created_at), 'updated_at': iso(item.updated_at)}
+
+
+def quarantine(item):
+    return {'id': item.id, 'dataset_id': item.dataset_id,
+            'inspection_id': item.inspection_id, 'line_no': item.line_no,
+            'raw_row': item.raw_row, 'reasons': item.reasons, 'status': item.status,
+            'source': item.source, 'author': item.author,
+            'created_at': iso(item.created_at), 'resolved_at': iso(item.resolved_at)}
 
 
 def run(item, detail=False):
     item_view = {'id': item.id, 'dataset_id': item.dataset_id, 'name': item.name, 'status': item.status,
                  'author': item.author, 'review': item.review, 'decision': item.decision,
+                 'attempt': item.attempt,
                  'created_at': iso(item.created_at), 'finished_at': iso(item.finished_at),
                  'scheduled_at': iso(item.scheduled_at), 'schedule_id': item.schedule_id,
                  'has_export': bool(item.export_file), 'error': item.error}
